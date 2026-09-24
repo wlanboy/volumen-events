@@ -6,6 +6,10 @@ set -euo pipefail
 NS="${1:?usage: $0 <namespace>}"
 SEL="volumen-events/test-namespace=${NS}"
 
+# Use oc if kubectl is not installed (override with KUBE_CLI=oc).
+KUBE_CLI="${KUBE_CLI:-$(command -v kubectl >/dev/null && echo kubectl || echo oc)}"
+kubectl() { command "${KUBE_CLI}" "$@"; }
+
 if kubectl get namespace "${NS}" >/dev/null 2>&1; then
   if [[ "$(kubectl get namespace "${NS}" -o jsonpath="{.metadata.labels['volumen-events/test-namespace']}")" != "${NS}" ]]; then
     echo "namespace ${NS} was not created by test.sh (label ${SEL} missing), refusing to delete it" >&2

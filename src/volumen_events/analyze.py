@@ -1,8 +1,10 @@
 """Turn a namespace snapshot into per-object findings."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import IntEnum
 from typing import Any
 
@@ -87,7 +89,8 @@ def parse_time(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        # fromisoformat() only accepts a trailing "Z" since Python 3.11.
+        return datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
     except ValueError:
         return None
 
@@ -169,7 +172,7 @@ def _pod_ready_since(pod: Obj) -> datetime | None:
     status = pod.get("status", {})
     phase = status.get("phase")
     if phase == "Succeeded":
-        return datetime.min.replace(tzinfo=UTC)
+        return datetime.min.replace(tzinfo=timezone.utc)
     if phase != "Running":
         return None
     started: list[datetime] = []
@@ -180,7 +183,7 @@ def _pod_ready_since(pod: Obj) -> datetime | None:
                 started.append(t)
         elif "terminated" not in state:
             return None
-    return max(started, default=datetime.min.replace(tzinfo=UTC))
+    return max(started, default=datetime.min.replace(tzinfo=timezone.utc))
 
 
 def analyze(
@@ -189,7 +192,7 @@ def analyze(
     since: timedelta | None = None,
     now: datetime | None = None,
 ) -> Report:
-    now = now or datetime.now(UTC)
+    now = now or datetime.now(timezone.utc)
     findings: dict[tuple[str, str], Finding] = {}
 
     def finding(kind: str, name: str) -> Finding:
@@ -349,7 +352,7 @@ def analyze(
         if not f.status and kind == "Pod":
             f.status = _pod_status(objects["Pod"][name])
 
-    oldest = datetime.min.replace(tzinfo=UTC)
+    oldest = datetime.min.replace(tzinfo=timezone.utc)
     for f in findings.values():
         f.events.sort(key=lambda e: e.last_seen or oldest, reverse=True)
 
@@ -364,23 +367,21 @@ def _resolved(kind: str, obj: Obj, ev: Event, current: Finding | None) -> bool:
     (e.g. VolumeConditionAbnormal, VolumeModifyFailed) stay until they expire.
     """
     healthy = current is None or not current.issues
-    match kind:
-        case "PersistentVolumeClaim":
-            if obj.get("status", {}).get("phase") != "Bound":
-                return False
-            return ev.reason in PROVISIONING_REASONS or (ev.reason in RESIZE_REASONS and healthy)
-        case "PersistentVolume":
-            if obj.get("status", {}).get("phase") not in ("Bound", "Available"):
-                return False
-            return ev.reason in PROVISIONING_REASONS | RECLAIM_REASONS and healthy
-        case "Pod":
-            ready = _pod_ready_since(obj)
-            return ready is not None and (ev.last_seen is None or ev.last_seen <= ready)
-        case "StatefulSet":
-            status = obj.get("status", {})
-            return status.get("readyReplicas", 0) >= obj.get("spec", {}).get("replicas", 1)
-        case _:
+    if kind == "PersistentVolumeClaim":
+        if obj.get("status", {}).get("phase") != "Bound":
             return False
+        return ev.reason in PROVISIONING_REASONS or (ev.reason in RESIZE_REASONS and healthy)
+    if kind == "PersistentVolume":
+        if obj.get("status", {}).get("phase") not in ("Bound", "Available"):
+            return False
+        return ev.reason in PROVISIONING_REASONS | RECLAIM_REASONS and healthy
+    if kind == "Pod":
+        ready = _pod_ready_since(obj)
+        return ready is not None and (ev.last_seen is None or ev.last_seen <= ready)
+    if kind == "StatefulSet":
+        status = obj.get("status", {})
+        return status.get("readyReplicas", 0) >= obj.get("spec", {}).get("replicas", 1)
+    return False
 
 
 def fmt_age(delta: timedelta) -> str:

@@ -14,6 +14,10 @@ P="volev-${NS}"
 LABEL="volumen-events/test-namespace: \"${NS}\""
 IMAGE="registry.k8s.io/pause:3.10"
 
+# Use oc if kubectl is not installed (override with KUBE_CLI=oc).
+KUBE_CLI="${KUBE_CLI:-$(command -v kubectl >/dev/null && echo kubectl || echo oc)}"
+kubectl() { command "${KUBE_CLI}" "$@"; }
+
 step() { printf '\n==> %s\n' "$*"; }
 apply() { kubectl apply -f - >/dev/null; }
 

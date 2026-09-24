@@ -6,14 +6,15 @@ Zeigt für einen Namespace die letzten Events, die auf Fehler oder Warnungen bei
 uv run volumen-events -n <namespace>
 ```
 
-Exit-Codes: `0` = OK (alle Volumes in Ordnung), `1` = Probleme gefunden, `2` = Fehler (z. B. Namespace existiert nicht, kubectl schlägt fehl).
+Exit-Codes: `0` = OK (alle Volumes in Ordnung), `1` = Probleme gefunden, `2` = Fehler (z. B. Namespace existiert nicht, kubectl/oc schlägt fehl).
 
-Das Tool ruft `kubectl` auf und nutzt dessen Kubeconfig/Context.
+Das Tool ruft `kubectl` auf und nutzt dessen Kubeconfig/Context. Ist kein `kubectl` installiert, wird `oc` (OpenShift) verwendet; mit `--cli oc` lässt sich `oc` erzwingen. Darf ein Projektmitglied unter OpenShift das Namespace-Objekt nicht lesen, prüft das Tool stattdessen, ob das Projekt existiert.
 
 | Option | Bedeutung |
 |---|---|
 | `-n, --namespace` | zu prüfender Namespace (Pflicht) |
-| `--context`, `--kubeconfig` | werden an kubectl durchgereicht |
+| `--cli kubectl\|oc` | aufzurufender Client (Default: `kubectl`, sonst `oc`) |
+| `--context`, `--kubeconfig` | werden an kubectl/oc durchgereicht |
 | `-e, --events N` | Events pro Objekt, `0` = alle (Default 3) |
 | `--since 30m` | ältere Events ignorieren |
 | `--grace 30s` | so lange gelten Pending-PVCs noch als „provisioning“ |
@@ -37,6 +38,8 @@ Events von Objekten, die nicht mehr existieren, werden ausgeblendet, ebenso Even
 uv run volumen-events -n volev-test
 ./uninstall.sh volev-test
 ```
+
+Die Skripte nehmen `kubectl`, ohne kubectl `oc`; erzwingen lässt sich das mit `KUBE_CLI=oc ./test.sh …`.
 
 `test.sh` erzeugt 1Mi-PVCs und `pause`-Pods für diese Fälle: gesundes PVC, ungenutztes WFFC-PVC, nicht existierende StorageClass, no-provisioner ohne PVs, fehlender Provisioner (+ wartender Pod), statisches Binding ohne passendes PV, RWX bei local-path, RWOP-Konflikt mit zwei Pods, Pod mit fehlendem PVC, StatefulSet durch ResourceQuota blockiert, PV-NodeAffinity auf nicht existierenden Node, hostPath- und local-PV mit fehlendem Pfad, fehlende ConfigMap/Secret-Volumes, hängender Resize, `Lost`-Claim, `Released`-PV und ein PVC, das gelöscht wurde, während ein Pod es noch benutzt.
 
