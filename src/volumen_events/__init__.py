@@ -29,6 +29,16 @@ def parse_duration(value: str) -> timedelta:
     return timedelta(seconds=int(m[1]) * unit)
 
 
+def non_negative_int(value: str) -> int:
+    if not value.isdigit():
+        raise argparse.ArgumentTypeError(f"invalid count {value!r} (0 = all)")
+    return int(value)
+
+
+def _limit(max_events: int) -> int | None:
+    return max_events or None
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="volumen-events",
@@ -39,7 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-n", "--namespace", required=True, help="namespace to check")
     p.add_argument("--context", help="kubeconfig context")
     p.add_argument("--kubeconfig", help="path to kubeconfig")
-    p.add_argument("-e", "--events", type=int, default=3, metavar="N", help="events shown per object (default 3)")
+    p.add_argument(
+        "-e",
+        "--events",
+        type=non_negative_int,
+        default=3,
+        metavar="N",
+        help="events shown per object, 0 = all (default 3)",
+    )
     p.add_argument("--since", type=parse_duration, metavar="DUR", help="ignore events older than DUR (e.g. 30m)")
     p.add_argument(
         "--grace",
@@ -84,12 +101,13 @@ def _render_finding(f: Finding, max_events: int, now: datetime) -> str:
     out = [head]
     for issue in f.issues:
         out.append(f"    - {issue}")
-    for ev in f.events[:max_events]:
+    shown = f.events[: _limit(max_events)]
+    for ev in shown:
         age = fmt_age(now - ev.last_seen) + " ago" if ev.last_seen else "unknown time"
         count = f" x{ev.count}" if ev.count > 1 else ""
         out.append(f"    {ev.type} {ev.reason}{count}, {age}: {ev.message}")
-    if len(f.events) > max_events:
-        out.append(f"    ... {len(f.events) - max_events} older event(s)")
+    if len(f.events) > len(shown):
+        out.append(f"    ... {len(f.events) - len(shown)} older event(s), show with -e 0")
     return "\n".join(out) + "\n"
 
 
@@ -99,6 +117,7 @@ def render_json(report: Report, max_events: int) -> str:
             "namespace": report.namespace,
             "ok": report.ok,
             "warnings": report.warnings,
+            "maxEvents": max_events or None,
             "objects": [
                 {
                     "kind": f.kind,
@@ -114,8 +133,10 @@ def render_json(report: Report, max_events: int) -> str:
                             "count": e.count,
                             "lastSeen": e.last_seen.isoformat() if e.last_seen else None,
                         }
-                        for e in f.events[:max_events]
+                        for e in f.events[: _limit(max_events)]
                     ],
+                    "eventsTotal": len(f.events),
+                    "eventsOmitted": max(0, len(f.events) - max_events) if max_events else 0,
                 }
                 for f in report.findings
             ],
