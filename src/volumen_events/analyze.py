@@ -56,6 +56,16 @@ PROVISIONING_REASONS = {
     "WaitForFirstConsumer",
     "WaitForPodScheduled",
 }
+# Events about resizing; history once the claim shows no resize issue anymore.
+RESIZE_REASONS = {
+    "VolumeResizeFailed",
+    "FileSystemResizeFailed",
+    "ExternalExpanding",
+    "Resizing",
+    "FileSystemResizeRequired",
+}
+# Events about reclaiming a released volume; history once the volume is bound or available again.
+RECLAIM_REASONS = {"VolumeFailedRecycle", "VolumeFailedDelete", "ClaimLost", "ClaimMisbound"}
 RESIZE_ERROR_CONDITIONS = {"ControllerResizeError", "NodeResizeError"}
 
 _QUANTITY_SUFFIX = {
@@ -348,14 +358,21 @@ def analyze(
 
 
 def _resolved(kind: str, obj: Obj, ev: Event, current: Finding | None) -> bool:
-    """True if the object is healthy now, so the event is history."""
+    """True if the object is healthy now, so the event is history.
+
+    Only events whose cause is visible in the object's state are dropped; other warnings
+    (e.g. VolumeConditionAbnormal, VolumeModifyFailed) stay until they expire.
+    """
+    healthy = current is None or not current.issues
     match kind:
         case "PersistentVolumeClaim":
             if obj.get("status", {}).get("phase") != "Bound":
                 return False
-            return ev.reason in PROVISIONING_REASONS or current is None or not current.issues
+            return ev.reason in PROVISIONING_REASONS or (ev.reason in RESIZE_REASONS and healthy)
         case "PersistentVolume":
-            return obj.get("status", {}).get("phase") in ("Bound", "Available") and current is None
+            if obj.get("status", {}).get("phase") not in ("Bound", "Available"):
+                return False
+            return ev.reason in PROVISIONING_REASONS | RECLAIM_REASONS and healthy
         case "Pod":
             ready = _pod_ready_since(obj)
             return ready is not None and (ev.last_seen is None or ev.last_seen <= ready)
