@@ -14,10 +14,10 @@ Das Tool ruft `kubectl` auf und nutzt dessen Kubeconfig/Context.
 |---|---|
 | `-n, --namespace` | zu prüfender Namespace (Pflicht) |
 | `--context`, `--kubeconfig` | werden an kubectl durchgereicht |
-| `-e, --events N` | Events pro Objekt (Default 3) |
+| `-e, --events N` | Events pro Objekt, `0` = alle (Default 3) |
 | `--since 30m` | ältere Events ignorieren |
 | `--grace 30s` | so lange gelten Pending-PVCs noch als „provisioning“ |
-| `-o json` | maschinenlesbare Ausgabe |
+| `-o json` | maschinenlesbare Ausgabe (pro Objekt mit `eventsTotal` und `eventsOmitted`) |
 | `-q` | INFO-Einträge ausblenden |
 
 ## Was geprüft wird
@@ -27,7 +27,7 @@ Das Tool ruft `kubectl` auf und nutzt dessen Kubeconfig/Context.
 - **Pods**, die nicht existierende PVCs referenzieren
 - **Events:** alle Warnings an PVCs/PVs, dazu Normal-Events, die auf Hängen hindeuten (`ExternalProvisioning`, `FailedBinding`, `ExternalExpanding`, …). Bei Pods, StatefulSets usw. Warnings mit volume-bezogenem Grund oder Text (`FailedMount`, `FailedAttachVolume`, `FailedScheduling … PersistentVolumeClaim`, `FailedCreate … exceeded quota`, …)
 
-Events von Objekten, die inzwischen gesund sind (PVC gebunden, Pod läuft seit dem Event, StatefulSet ready) oder nicht mehr existieren, werden ausgeblendet. Ein ungenutztes PVC mit `WaitForFirstConsumer` erscheint nur als INFO und zählt als OK.
+Events von Objekten, die nicht mehr existieren, werden ausgeblendet, ebenso Events, deren Ursache erledigt ist: Provisioning-Events eines gebundenen PVCs, Resize-Events eines PVCs ohne offenes Resize-Problem, Provisioning-/Reclaim-Events eines PVs, das wieder `Bound`/`Available` ist, Pod-Events von vor dem Start eines laufenden Pods und Events eines StatefulSets, das ready ist. Andere Warnings an gesunden PVCs/PVs (z. B. `VolumeConditionAbnormal`, `VolumeModifyFailed`) bleiben sichtbar. Ein ungenutztes PVC mit `WaitForFirstConsumer` erscheint nur als INFO und zählt als OK.
 
 ## Testumgebung
 
